@@ -20,7 +20,7 @@ class Ziggy implements JsonSerializable
     {
         $this->group = $group;
 
-        $this->url = rtrim($url ?? url('/'), '/');
+        $this->url  = rtrim($url ?? url('/'), '/');
         $this->port = parse_url($this->url)['port'] ?? null;
 
         $this->routes = $this->nameKeyedRoutes();
@@ -76,7 +76,7 @@ class Ziggy implements JsonSerializable
     public function filter($filters = [], $include = true): self
     {
         $this->routes = $this->routes->filter(function ($route, $name) use ($filters, $include) {
-            return Str::is(Arr::wrap($filters), $name) ? $include : ! $include;
+            return Str::is(Arr::wrap($filters), $name) ? $include : !$include;
         });
 
         return $this;
@@ -87,28 +87,19 @@ class Ziggy implements JsonSerializable
      */
     private function nameKeyedRoutes()
     {
-        [$fallbacks, $routes] = collect(app('router')->getRoutes()->getRoutesByName())
-            ->reject(function ($route) {
-                return Str::startsWith($route->getName(), 'generated::');
-            })
-            ->partition(function ($route) {
-                return $route->isFallback;
-            });
+        $routes = [];
+        foreach (app('router')->getRoutes()->getRoutes() as $route) {
+            if ($route->getName() &&
+                !Str::startsWith($route->getName(), 'debugbar.') &&
+                !Str::startsWith($route->getName(), 'generated::')) {
+                $routes[$route->getName()] = $route;
+            }
+        }
 
-        $bindings = $this->resolveBindings($routes->toArray());
+        return collect($routes)->map(function ($route) {
 
-        return $routes->merge($fallbacks)
-            ->map(function ($route) use ($bindings) {
-                return collect($route)->only(['uri', 'methods'])
-                    ->put('domain', $route->domain())
-                    ->put('bindings', $bindings[$route->getName()] ?? [])
-                    ->when($middleware = config('ziggy.middleware'), function ($collection) use ($middleware, $route) {
-                        if (is_array($middleware)) {
-                            return $collection->put('middleware', collect($route->middleware())->intersect($middleware)->values()->all());
-                        }
-
-                        return $collection->put('middleware', $route->middleware());
-                    })->filter();
+                return collect(['uri' => $route->getUri(), 'methods' => $route->getMethods(), 'domain'=> $route->domain()])
+                    ->only(['uri', 'methods'])->filter();
             });
     }
 
@@ -118,12 +109,12 @@ class Ziggy implements JsonSerializable
     public function toArray(): array
     {
         return [
-            'url' => $this->url,
-            'port' => $this->port,
+            'url'      => $this->url,
+            'port'     => $this->port,
             'defaults' => method_exists(app('url'), 'getDefaultParameters')
                 ? app('url')->getDefaultParameters()
                 : [],
-            'routes' => $this->applyFilters($this->group)->toArray(),
+            'routes'   => $this->applyFilters($this->group)->toArray(),
         ];
     }
 
@@ -156,7 +147,7 @@ class Ziggy implements JsonSerializable
             $bindings = [];
 
             foreach ($route->signatureParameters(UrlRoutable::class) as $parameter) {
-                $model = class_exists(Reflector::class)
+                $model    = class_exists(Reflector::class)
                     ? Reflector::getParameterClassName($parameter)
                     : $parameter->getType()->getName();
                 $override = $model === (new ReflectionMethod($model, 'getRouteKeyName'))->class;
